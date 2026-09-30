@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opschart"
+version = "2.4.0"
+description = "Terminal chart rendering helpers for CLI reporting tools"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [{name = "opschart maintainers"}]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: System :: Systems Administration",
+]
+
+[tool.setuptools]
+packages = ["opschart"]
