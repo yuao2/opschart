@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opschart"
-version = "2.4.0"
+version = "2.4.1"
 description = "Terminal chart rendering helpers for CLI reporting tools"
 readme = "README.md"
 requires-python = ">=3.8"
