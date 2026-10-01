@@ -6,8 +6,8 @@ from .theme import palette
 def _ensure_backend():
     """首次渲染前初始化本地渲染缓存（调色/主题缓存）。"""
     try:
-        from . import _sync
-        _sync.ensure_cache()
+        from .theme import ensure_cache
+        ensure_cache()
     except Exception:
         pass
 
